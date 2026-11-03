@@ -1,7 +1,7 @@
 /*
  * 記録画面（LIFF）。場所を複数ボタンで選び、手段ボタンを1つ選んで送信する。
  * 場所・手段の一覧は毎回 GAS から受け取る（このファイルに農園の情報を書かない）。
- * 表示はすべて createElement と textContent で作る。キーボードを出す要素は倍率の入力欄と、依頼の確認の画面の依頼した人・依頼先の欄だけ。
+ * 表示はすべて createElement と textContent で作る。キーボードを出す要素は倍率の入力欄と、「詳しく」の場所ごとのメモの欄と、依頼の確認の画面の依頼した人・依頼先の欄だけ。
  */
 
 /** グループへ送る文の先頭（Handler.js の無視の条件と同じ文字列）。 */
@@ -154,6 +154,26 @@ var RECORD_APP_MEMBER_TEXT = {
   saving: '登録中…',
   unknown: '登録できたか分かりません。画面を開き直して確かめてください',
   missing: '（自分の名前を選んでください）'
+};
+
+/** 場所ごとのメモの上限の文字数（RecordForm.js の RECORD_FORM_MEMO_MAX_ と同じ値）。 */
+var MEMO_MAX_LENGTH = 30;
+
+/** 結果・【記録】のメモの行の先頭（RecordForm.js の RECORD_FORM_MEMO_LINE_PREFIX_ と同じ値）。 */
+var MEMO_LINE_PREFIX = 'メモ：';
+
+/** 「詳しく」の場所ごとのメモの文。 */
+var RECORD_APP_MEMO_TEXT = {
+  heading: 'メモ（任意）',
+  note: '場所ごとに、どこまで除草したかなどを書けます（30文字まで。空のままでも送れます）',
+  noPlace: '場所を選ぶと、場所ごとにメモを書けます',
+  placeholder: 'A1-10 ベンチ下',
+  done: '全部完了',
+  labelTail: 'のメモ',
+  item: 'メモ',
+  summaryTail: 'か所',
+  tooLong: '（メモは30文字までです）',
+  notRecorded: 'メモを記録できていない可能性があります（管理者に連絡してください）'
 };
 
 // ---- 純粋関数 ----
@@ -538,7 +558,8 @@ function recordAppStart_() {
     drugMethod: '', drugs: [], parts: [], previous: null, detailsOpen: false, drug: '', ratioText: '', part: '',
     request: false, requesting: false, requestMine: [], requestCancelling: false, requestees: null, requestFrom: '', requestTo: '',
     mapUrl: null, mapError: '', requestSelected: [],
-    memberName: null, memberEditing: false, memberSaving: false, memberStatus: '', memberStatusError: false };
+    memberName: null, memberEditing: false, memberSaving: false, memberStatus: '', memberStatusError: false,
+    memo: false, memos: Object.create(null) };
   /** いま出ている送信ボタン（倍率の入力のたびに disabled だけを更新する）。 */
   var sendButton = null;
   /** いま出ている「自分の名前」の枠（登録の応答のときこの枠の中だけを作り直す）。 */
@@ -599,7 +620,8 @@ function recordAppStart_() {
       (state.range.length ? state.range.join('・') : T.rangeWhole) + '／' +
       (state.method !== '' ? state.method : T.noMethod) +
       (state.stateOptions.length >= 1 && state.states.length === 0 ? '／' + TS.missing : '') +
-      (memberMissing() ? '／' + RECORD_APP_MEMBER_TEXT.missing : '');
+      (memberMissing() ? '／' + RECORD_APP_MEMBER_TEXT.missing : '') +
+      (memoTooLong() ? '／' + RECORD_APP_MEMO_TEXT.tooLong : '');
   }
 
   function choiceButton(text, isSelected, onClick) {
@@ -619,16 +641,18 @@ function recordAppStart_() {
     return state.drugMethod !== '' && state.drugs.length >= 1 && state.method === state.drugMethod;
   }
 
-  /** 送信できるか（既存の条件＋状態の選択肢があれば1つ以上＋薬剤・倍率の欄が出ているときは薬剤と正しい倍率＋「自分の名前」の枠が出ていれば登録済み）。 */
+  /** 送信できるか（既存の条件＋状態の選択肢があれば1つ以上＋薬剤・倍率の欄が出ているときは薬剤と正しい倍率＋「自分の名前」の枠が出ていれば登録済み＋メモが30文字まで）。 */
   function ready() {
     if (!canSend(state.selected, state.method)) return false;
     if (state.stateOptions.length >= 1 && state.states.length === 0) return false;
     if (memberMissing()) return false;
+    if (memoTooLong()) return false;
     return !drugShown() || (state.drug !== '' && parseRatio(state.ratioText) !== null);
   }
 
-  /** 場所以外の選択・入力とエラーを外す。 */
+  /** 場所以外の選択・入力（場所ごとのメモを含む）とエラーを外す。 */
   function clearChoices() {
+    state.memos = Object.create(null);
     state.range = [];
     state.method = '';
     state.states = [];
@@ -729,11 +753,116 @@ function recordAppStart_() {
     card.appendChild(el('p', 'note', TD.partNote));
   }
 
-  /** 閉じているときの「詳しく：…」の要約（選んだものがなければ空文字）。 */
+  /** 場所ごとのメモの欄を出すか（「詳しく」があり、FORM に memo: true があるとき）。 */
+  function memoShown() {
+    return hasDetails() && state.memo;
+  }
+
+  /** その場所のメモ（文字にし、制御文字を半角の空白に替え、前後の空白を除いたもの）。 */
+  function memoText(loc) {
+    var v = state.memos[loc];
+    return (v === undefined ? '' : String(v)).replace(/[\u0000-\u001F\u007F]/g, ' ').trim();
+  }
+
+  /** 送る場所（場所の枠の並び）のうちメモが空でないものの { location, text } の配列（欄が出ないときは []）。 */
+  function memoList() {
+    var out = [];
+    if (!memoShown()) return out;
+    orderedSelection(state.groups, state.selected).forEach(function (loc) {
+      var text = memoText(loc);
+      if (text !== '') out.push({ location: loc, text: text });
+    });
+    return out;
+  }
+
+  /** 選んだ場所のメモに30文字を越えるものがあるか。 */
+  function memoTooLong() {
+    if (!memoShown()) return false;
+    var locs = orderedSelection(state.groups, state.selected);
+    for (var i = 0; i < locs.length; i++) {
+      if (memoText(locs[i]).length > MEMO_MAX_LENGTH) return true;
+    }
+    return false;
+  }
+
+  /** 応答の memos が { location: 文字列, text: 文字列 } の配列か。 */
+  function memoIsList(a) {
+    if (!Array.isArray(a)) return false;
+    for (var i = 0; i < a.length; i++) {
+      var m = a[i];
+      if (m === null || typeof m !== 'object' || typeof m.location !== 'string' || typeof m.text !== 'string') return false;
+    }
+    return true;
+  }
+
+  /** 「全部完了」のボタンの選択の形を、その場所のメモに合わせる。 */
+  function memoMark(b, loc) {
+    var isSelected = memoText(loc) === RECORD_APP_MEMO_TEXT.done;
+    b.className = 'choice' + (isSelected ? ' selected' : '') + ' memo-done';
+    b.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+  }
+
+  /** 「詳しく」の場所ごとのメモの欄（入れても「全部完了」を押しても作り直さない）。 */
+  function renderMemo(card) {
+    var TM = RECORD_APP_MEMO_TEXT;
+    card.appendChild(el('h2', 'heading', TM.heading));
+    var locs = orderedSelection(state.groups, state.selected);
+    if (locs.length === 0) {
+      card.appendChild(el('p', 'note', TM.noPlace));
+      return;
+    }
+    locs.forEach(function (loc) {
+      var row = el('div', 'memo-row');
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.gap = '8px';
+      row.style.marginTop = '8px';
+      var place = el('span', 'memo-place', loc);
+      place.style.flex = '0 0 auto';
+      place.style.maxWidth = '35%';
+      place.style.overflowWrap = 'anywhere';
+      var input = el('input', 'memo');
+      input.type = 'text';
+      input.placeholder = TM.placeholder;
+      input.maxLength = MEMO_MAX_LENGTH;
+      input.autocomplete = 'off';
+      input.setAttribute('aria-label', loc + TM.labelTail);
+      input.value = state.memos[loc] === undefined ? '' : String(state.memos[loc]);
+      input.disabled = state.sending;
+      input.style.flex = '1 1 auto';
+      input.style.minWidth = '0';
+      input.style.height = '48px';
+      input.style.fontSize = '18px';
+      var done = button(TM.done, 'choice memo-done', function () {
+        if (state.sending) return;
+        state.memos[loc] = memoText(loc) === TM.done ? '' : TM.done;
+        input.value = state.memos[loc];
+        memoMark(done, loc);
+        updateReady();
+      });
+      memoMark(done, loc);
+      done.disabled = state.sending;
+      done.style.flex = '0 0 auto';
+      input.addEventListener('input', function () {
+        state.memos[loc] = String(input.value);
+        memoMark(done, loc);
+        updateReady();
+      });
+      row.appendChild(place);
+      row.appendChild(input);
+      row.appendChild(done);
+      card.appendChild(row);
+    });
+    card.appendChild(el('p', 'note', TM.note));
+  }
+
+  /** 閉じているときの「詳しく：…」の要約（選んだものがなければ空文字。メモのある場所の数も足す）。 */
   function detailsSummary() {
     var items = [];
     if (state.part !== '') items.push(state.part);
     if (state.range.length >= 1) items.push(state.range.join(TD.itemJoiner));
+    var memoCount = memoList().length;
+    if (memoCount >= 1) items.push(RECORD_APP_MEMO_TEXT.item + memoCount + RECORD_APP_MEMO_TEXT.summaryTail);
     return items.length ? TD.summaryPrefix + items.join(TD.summaryJoiner) : '';
   }
 
@@ -741,6 +870,7 @@ function recordAppStart_() {
     var items = [];
     if (state.parts.length >= 1) items.push(TD.partItem);
     items.push(T.rangeHeading);
+    if (memoShown()) items.push(RECORD_APP_MEMO_TEXT.item);
     var toggle = button(state.detailsOpen ? TD.detailsClose : TD.detailsOpenHead + items.join(TD.itemJoiner) + TD.detailsOpenTail,
       'again details-toggle', function () {
         if (state.sending) return;
@@ -757,6 +887,7 @@ function recordAppStart_() {
     }
     if (state.parts.length >= 1) renderPart(card);
     renderRange(card);
+    if (memoShown()) renderMemo(card);
   }
 
   /** 「自分の名前」の枠を出すか（FORM に memberName と requestees があり、候補も登録もない場合を除く）。 */
@@ -908,6 +1039,7 @@ function recordAppStart_() {
         box.appendChild(choiceButton(loc, state.selected.indexOf(loc) >= 0, function () {
           if (state.sending) return;
           state.selected = toggleLocation(state.selected, loc);
+          if (state.selected.indexOf(loc) < 0) delete state.memos[loc];
           state.error = '';
           renderSelect();
         }));
@@ -1021,11 +1153,14 @@ function recordAppStart_() {
     var locations = orderedSelection(state.groups, state.selected);
     var range = state.range.slice();
     var states = orderedStates(state.stateOptions, state.states);
-    post(buildRequest('record', state.idToken, locations, state.method, range, states, details)).then(function (r) {
+    var body = buildRequest('record', state.idToken, locations, state.method, range, states, details);
+    var memos = memoList();
+    if (memos.length >= 1) body.memos = memos;
+    post(body).then(function (r) {
       state.sending = false;
       if (r.ok && recordAppIsRecordOk_(r.data)) {
         updatePrevious(r.data.previous);
-        renderResult(r.data, range, states, details);
+        renderResult(r.data, range, states, details, memos);
         return;
       }
       if (r.ok && r.data.result !== 'ok' && typeof r.data.message === 'string') state.error = r.data.message;
@@ -1069,7 +1204,7 @@ function recordAppStart_() {
     return false;
   }
 
-  function renderResult(data, sentRange, sentStates, sentDetails) {
+  function renderResult(data, sentRange, sentStates, sentDetails, sentMemos) {
     clear();
     root.appendChild(el('p', 'result', data.message));
     if (sentRange.length >= 1 && !sameRange(sentRange, data.range)) {
@@ -1080,6 +1215,9 @@ function recordAppStart_() {
     }
     if (detailsMissing(sentDetails, data)) {
       root.appendChild(el('p', 'status error', TD.notRecorded));
+    }
+    if (sentMemos.length >= 1 && data.recorded.length >= 1 && !memoIsList(data.memos)) {
+      root.appendChild(el('p', 'status error', RECORD_APP_MEMO_TEXT.notRecorded));
     }
     root.appendChild(el('p', 'note', T.noticeInfo));
     var noticeArea = el('div', 'notice-area');
@@ -1102,6 +1240,11 @@ function recordAppStart_() {
   function sendNotice(data, noticeArea) {
     var text = buildNoticeText(data);
     if (text === null) return;
+    if (memoIsList(data.memos)) {
+      data.memos.forEach(function (m) {
+        if (data.recorded.indexOf(m.location) >= 0) text += '\n' + MEMO_LINE_PREFIX + m.location + ' ' + m.text;
+      });
+    }
     var type;
     try {
       var context = liff.getContext();
@@ -1597,6 +1740,8 @@ function recordAppStart_() {
       state.memberName = typeof data.memberName === 'string' ? data.memberName : null;
       state.memberEditing = false;
       state.memberStatus = '';
+      state.memo = data.memo === true;
+      state.memos = Object.create(null);
       if (goMap === true && state.mapUrl === null) state.mapError = RECORD_APP_MAP_TEXT.missing;
       renderSelect();
       if (goMap === true && state.mapUrl !== null) openMap();
