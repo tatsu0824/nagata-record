@@ -1049,12 +1049,11 @@ function stockAppStart(root, config, idToken, mode) {
   function renderSelect() {
     toConfirmButton = null;
     clear(T.titleRecord);
-    root.appendChild(el('p', 'name', state.name + T.nameSuffix));
     root.appendChild(searchCard('one', function (hit) {
       selectItem(hit.kind, hit.group, hit.item);
     }));
 
-    if (state.kinds.length >= 2) {
+    if (state.kinds.length >= 1) {
       var kindCard = el('div', 'card');
       kindCard.appendChild(el('h2', 'heading', T.kindHeading));
       var kindChoices = el('div', 'choices');
@@ -1335,9 +1334,8 @@ function stockAppStart(root, config, idToken, mode) {
     batchInputs = Object.create(null);
     if (batch.kind !== state.kind) resetBatch();
     clear(T.titleRecord);
-    root.appendChild(el('p', 'name', state.name + T.nameSuffix));
 
-    if (state.kinds.length >= 2) {
+    if (state.kinds.length >= 1) {
       var kindCard = el('div', 'card');
       kindCard.appendChild(el('h2', 'heading', T.kindHeading));
       var kindChoices = el('div', 'choices');

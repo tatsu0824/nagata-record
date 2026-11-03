@@ -146,13 +146,14 @@ var RECORD_APP_MAP_TEXT = {
 
 /** 選ぶ画面の「自分の名前」の枠の文。 */
 var RECORD_APP_MEMBER_TEXT = {
-  heading: '自分の名前',
-  note: 'ここで自分の名前を選ぶと、ほかの人があなたに除草を依頼したとき、Bot から知らせが届きます（Bot を友だち追加している人だけ）',
-  currentTail: ' で登録しています',
-  change: '名前を変える',
+  heading: '自分の名前（必須）',
+  note: '選ぶと記録できます（除草を頼まれたときの知らせも、この名前に届きます）',
+  currentHead: '自分の名前：',
+  change: '変える',
   cancel: 'やめる',
   saving: '登録中…',
-  unknown: '登録できたか分かりません。画面を開き直して確かめてください'
+  unknown: '登録できたか分かりません。画面を開き直して確かめてください',
+  missing: '（自分の名前を選んでください）'
 };
 
 // ---- 純粋関数 ----
@@ -542,6 +543,8 @@ function recordAppStart_() {
   var sendButton = null;
   /** いま出ている「自分の名前」の枠（登録の応答のときこの枠の中だけを作り直す）。 */
   var memberCard = null;
+  /** いま出ている下の帯の選択中の文（名前の登録の応答のときこの文だけを更新する）。 */
+  var selectionLine = null;
 
   function el(tag, className, text) {
     var e = document.createElement(tag);
@@ -595,7 +598,8 @@ function recordAppStart_() {
     return T.selectedPrefix + (locs.length ? locs.join('・') : T.noLocation) + '／' +
       (state.range.length ? state.range.join('・') : T.rangeWhole) + '／' +
       (state.method !== '' ? state.method : T.noMethod) +
-      (state.stateOptions.length >= 1 && state.states.length === 0 ? '／' + TS.missing : '');
+      (state.stateOptions.length >= 1 && state.states.length === 0 ? '／' + TS.missing : '') +
+      (memberMissing() ? '／' + RECORD_APP_MEMBER_TEXT.missing : '');
   }
 
   function choiceButton(text, isSelected, onClick) {
@@ -615,10 +619,11 @@ function recordAppStart_() {
     return state.drugMethod !== '' && state.drugs.length >= 1 && state.method === state.drugMethod;
   }
 
-  /** 送信できるか（既存の条件＋状態の選択肢があれば1つ以上＋薬剤・倍率の欄が出ているときは薬剤と正しい倍率）。 */
+  /** 送信できるか（既存の条件＋状態の選択肢があれば1つ以上＋薬剤・倍率の欄が出ているときは薬剤と正しい倍率＋「自分の名前」の枠が出ていれば登録済み）。 */
   function ready() {
     if (!canSend(state.selected, state.method)) return false;
     if (state.stateOptions.length >= 1 && state.states.length === 0) return false;
+    if (memberMissing()) return false;
     return !drugShown() || (state.drug !== '' && parseRatio(state.ratioText) !== null);
   }
 
@@ -760,13 +765,26 @@ function recordAppStart_() {
     return !(state.requestees.length === 0 && state.memberName === '');
   }
 
-  /** 「自分の名前」の枠の中を作り直す（登録していない・登録している・変えている途中）。 */
+  /** 「自分の名前」の枠が出ていて、まだ登録していないか（このときは除草の記録を送れない）。 */
+  function memberMissing() {
+    return memberShown() && state.memberName === '';
+  }
+
+  /** 「自分の名前」の枠の中を作り直す（登録している＝1行・登録していない・変えている途中）。 */
   function renderMember(card) {
     var TM = RECORD_APP_MEMBER_TEXT;
     while (card.firstChild) card.removeChild(card.firstChild);
-    card.appendChild(el('h2', 'heading', TM.heading));
     if (state.memberName !== '' && !state.memberEditing) {
-      card.appendChild(el('p', 'member-current', state.memberName + TM.currentTail));
+      card.style.padding = '6px 12px';
+      var row = el('div', 'member-row');
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.gap = '8px';
+      var current = el('span', 'member-current', TM.currentHead + state.memberName);
+      current.style.flex = '1 1 auto';
+      current.style.minWidth = '0';
+      current.style.overflowWrap = 'anywhere';
+      row.appendChild(current);
       if (state.requestees.length >= 1) {
         var change = button(TM.change, 'again member-change', function () {
           if (state.memberSaving || state.sending) return;
@@ -774,10 +792,16 @@ function recordAppStart_() {
           state.memberStatus = '';
           renderMember(card);
         });
+        change.style.flex = '0 0 auto';
+        change.style.minHeight = '44px';
+        change.style.padding = '4px 16px';
         change.disabled = state.memberSaving || state.sending;
-        card.appendChild(change);
+        row.appendChild(change);
       }
+      card.appendChild(row);
     } else {
+      card.style.padding = '';
+      card.appendChild(el('h2', 'heading', TM.heading));
       card.appendChild(el('p', 'note', TM.note));
       var names = el('div', 'choices member-choices');
       state.requestees.forEach(function (name) {
@@ -803,7 +827,7 @@ function recordAppStart_() {
     else if (state.memberStatus !== '') card.appendChild(el('p', state.memberStatusError ? 'status error' : 'status', state.memberStatus));
   }
 
-  /** member を1回だけ送る（記録の選択・エラーの文・送信のボタンは変えない。FORM を送り直さない）。 */
+  /** member を1回だけ送る（記録の選択・エラーの文は変えず、応答の後は送信のボタンと選択中の文だけを更新する。FORM を送り直さない）。 */
   function saveMember(card, name) {
     if (state.memberSaving || state.sending) return;
     state.memberSaving = true;
@@ -824,20 +848,28 @@ function recordAppStart_() {
         state.memberStatusError = true;
       }
       if (memberCard !== null) renderMember(memberCard);
+      updateReady();
     }).catch(function () {
       state.memberSaving = false;
       state.memberStatus = RECORD_APP_MEMBER_TEXT.unknown;
       state.memberStatusError = true;
       if (memberCard !== null) renderMember(memberCard);
+      updateReady();
     });
+  }
+
+  /** 送信のボタンの disabled と下の帯の選択中の文だけを今の状態に合わせる（ほかの要素は作り直さない）。 */
+  function updateReady() {
+    if (sendButton !== null) sendButton.disabled = state.sending || !ready();
+    if (selectionLine !== null) selectionLine.textContent = selectionText();
   }
 
   function renderSelect() {
     clear();
     sendButton = null;
     memberCard = null;
+    selectionLine = null;
     var details = hasDetails();
-    root.appendChild(el('p', 'name', state.name + T.nameSuffix));
     if (state.mapUrl !== null) {
       var mapRow = el('div', 'action-row');
       var mapOpen = button(RECORD_APP_MAP_TEXT.open, 'again map-open', function () {
@@ -928,7 +960,8 @@ function recordAppStart_() {
     root.appendChild(el('p', 'note', T.noticeInfo));
 
     var bar = el('div', 'actions');
-    bar.appendChild(el('p', 'selection', selectionText()));
+    selectionLine = el('p', 'selection', selectionText());
+    bar.appendChild(selectionLine);
     if (state.sending) bar.appendChild(el('p', 'status', T.sending));
     else if (state.error !== '') bar.appendChild(el('p', 'status error', state.error));
     var row = el('div', 'action-row');
