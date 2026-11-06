@@ -167,7 +167,7 @@ var RECORD_APP_MEMO_TEXT = {
   heading: 'メモ（任意）',
   note: '場所ごとに、どこまで除草したかなどを書けます（30文字まで。空のままでも送れます）',
   noPlace: '場所を選ぶと、場所ごとにメモを書けます',
-  placeholder: 'A1-10 ベンチ下',
+  placeholder: '例：A1-10ベンチ下完了',
   done: '全部完了',
   labelTail: 'のメモ',
   item: 'メモ',
@@ -631,9 +631,9 @@ function recordAppStart_() {
     return b;
   }
 
-  /** FORM に部位があるとき「詳しく」を使う。 */
+  /** FORM に memo: true があるとき「詳しく」（場所ごとのメモ）を出す。 */
   function hasDetails() {
-    return state.parts.length >= 1;
+    return state.memo;
   }
 
   /** 薬剤・倍率の欄を出すか（薬剤の手段が選ばれていて、薬剤の選択肢があるとき）。 */
@@ -660,22 +660,6 @@ function recordAppStart_() {
     state.ratioText = '';
     state.part = '';
     state.error = '';
-  }
-
-  function renderRange(card) {
-    card.appendChild(el('h2', 'heading', T.rangeHeading));
-    var ranges = el('div', 'choices');
-    [T.rangeWhole].concat(RANGE_DIRECTIONS).forEach(function (dir) {
-      var isSelected = dir === T.rangeWhole ? state.range.length === 0 : state.range.indexOf(dir) >= 0;
-      ranges.appendChild(choiceButton(dir, isSelected, function () {
-        if (state.sending) return;
-        state.range = toggleRange(state.range, dir);
-        state.error = '';
-        renderSelect();
-      }));
-    });
-    card.appendChild(ranges);
-    card.appendChild(el('p', 'note', T.rangeNote));
   }
 
   function renderStates(card) {
@@ -736,21 +720,6 @@ function recordAppStart_() {
     card.appendChild(el('p', 'note', TD.ratioNoteHead + state.drugMethod + TD.ratioNoteTail));
     card.appendChild(errorArea);
     updateRatioError(errorArea);
-  }
-
-  function renderPart(card) {
-    card.appendChild(el('h2', 'heading', TD.partHeading));
-    var parts = el('div', 'choices part-choices');
-    state.parts.forEach(function (p) {
-      parts.appendChild(choiceButton(p, state.part === p, function () {
-        if (state.sending) return;
-        state.part = state.part === p ? '' : p;
-        state.error = '';
-        renderSelect();
-      }));
-    });
-    card.appendChild(parts);
-    card.appendChild(el('p', 'note', TD.partNote));
   }
 
   /** 場所ごとのメモの欄を出すか（「詳しく」があり、FORM に memo: true があるとき）。 */
@@ -866,12 +835,9 @@ function recordAppStart_() {
     return items.length ? TD.summaryPrefix + items.join(TD.summaryJoiner) : '';
   }
 
+  /** 「詳しく」の枠（開け閉めのボタンと、開いているときは場所ごとのメモだけ）。 */
   function renderDetails(card) {
-    var items = [];
-    if (state.parts.length >= 1) items.push(TD.partItem);
-    items.push(T.rangeHeading);
-    if (memoShown()) items.push(RECORD_APP_MEMO_TEXT.item);
-    var toggle = button(state.detailsOpen ? TD.detailsClose : TD.detailsOpenHead + items.join(TD.itemJoiner) + TD.detailsOpenTail,
+    var toggle = button(state.detailsOpen ? TD.detailsClose : TD.detailsOpenHead + RECORD_APP_MEMO_TEXT.item + TD.detailsOpenTail,
       'again details-toggle', function () {
         if (state.sending) return;
         state.detailsOpen = !state.detailsOpen;
@@ -885,9 +851,7 @@ function recordAppStart_() {
       if (summary !== '') card.appendChild(el('p', 'note', summary));
       return;
     }
-    if (state.parts.length >= 1) renderPart(card);
-    renderRange(card);
-    if (memoShown()) renderMemo(card);
+    renderMemo(card);
   }
 
   /** 「自分の名前」の枠を出すか（FORM に memberName と requestees があり、候補も登録もない場合を除く）。 */
@@ -1046,8 +1010,6 @@ function recordAppStart_() {
       });
       placeCard.appendChild(box);
     });
-
-    if (!details) renderRange(placeCard);
 
     if (state.previous !== null && state.selected.length >= 1) {
       var prev = el('div', 'previous');
