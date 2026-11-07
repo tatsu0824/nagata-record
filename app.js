@@ -164,8 +164,8 @@ var MEMO_LINE_PREFIX = 'メモ：';
 
 /** 「詳しく」の場所ごとのメモの文。 */
 var RECORD_APP_MEMO_TEXT = {
-  heading: 'メモ（任意）',
-  note: '場所ごとに、どこまで除草したかなどを書けます（30文字まで。空のままでも送れます）',
+  heading: 'メモ（必須）',
+  note: '場所ごとに書いてください。全部終わった場所は「全部完了」を押すだけで入ります（30文字まで）',
   noPlace: '場所を選ぶと、場所ごとにメモを書けます',
   placeholder: '例：A1-10ベンチ下完了',
   done: '全部完了',
@@ -173,6 +173,7 @@ var RECORD_APP_MEMO_TEXT = {
   item: 'メモ',
   summaryTail: 'か所',
   tooLong: '（メモは30文字までです）',
+  missing: '（メモを入れてください）',
   notRecorded: 'メモを記録できていない可能性があります（管理者に連絡してください）'
 };
 
@@ -621,6 +622,7 @@ function recordAppStart_() {
       (state.method !== '' ? state.method : T.noMethod) +
       (state.stateOptions.length >= 1 && state.states.length === 0 ? '／' + TS.missing : '') +
       (memberMissing() ? '／' + RECORD_APP_MEMBER_TEXT.missing : '') +
+      (memoMissing() ? '／' + RECORD_APP_MEMO_TEXT.missing : '') +
       (memoTooLong() ? '／' + RECORD_APP_MEMO_TEXT.tooLong : '');
   }
 
@@ -641,12 +643,13 @@ function recordAppStart_() {
     return state.drugMethod !== '' && state.drugs.length >= 1 && state.method === state.drugMethod;
   }
 
-  /** 送信できるか（既存の条件＋状態の選択肢があれば1つ以上＋薬剤・倍率の欄が出ているときは薬剤と正しい倍率＋「自分の名前」の枠が出ていれば登録済み＋メモが30文字まで）。 */
+  /** 送信できるか（既存の条件＋状態の選択肢があれば1つ以上＋薬剤・倍率の欄が出ているときは薬剤と正しい倍率＋「自分の名前」の枠が出ていれば登録済み＋メモが30文字まで＋メモの欄が出ていれば選んだ場所すべてにメモ）。 */
   function ready() {
     if (!canSend(state.selected, state.method)) return false;
     if (state.stateOptions.length >= 1 && state.states.length === 0) return false;
     if (memberMissing()) return false;
     if (memoTooLong()) return false;
+    if (memoMissing()) return false;
     return !drugShown() || (state.drug !== '' && parseRatio(state.ratioText) !== null);
   }
 
@@ -754,6 +757,16 @@ function recordAppStart_() {
     return false;
   }
 
+  /** メモの欄が出ていて、選んだ場所にメモが空のものがあるか（空白・制御文字だけも空）。 */
+  function memoMissing() {
+    if (!memoShown()) return false;
+    var locs = orderedSelection(state.groups, state.selected);
+    for (var i = 0; i < locs.length; i++) {
+      if (memoText(locs[i]) === '') return true;
+    }
+    return false;
+  }
+
   /** 応答の memos が { location: 文字列, text: 文字列 } の配列か。 */
   function memoIsList(a) {
     if (!Array.isArray(a)) return false;
@@ -825,32 +838,8 @@ function recordAppStart_() {
     card.appendChild(el('p', 'note', TM.note));
   }
 
-  /** 閉じているときの「詳しく：…」の要約（選んだものがなければ空文字。メモのある場所の数も足す）。 */
-  function detailsSummary() {
-    var items = [];
-    if (state.part !== '') items.push(state.part);
-    if (state.range.length >= 1) items.push(state.range.join(TD.itemJoiner));
-    var memoCount = memoList().length;
-    if (memoCount >= 1) items.push(RECORD_APP_MEMO_TEXT.item + memoCount + RECORD_APP_MEMO_TEXT.summaryTail);
-    return items.length ? TD.summaryPrefix + items.join(TD.summaryJoiner) : '';
-  }
-
-  /** 「詳しく」の枠（開け閉めのボタンと、開いているときは場所ごとのメモだけ）。 */
+  /** メモの枠（開け閉めはなく、いつも場所ごとのメモの欄を出す）。 */
   function renderDetails(card) {
-    var toggle = button(state.detailsOpen ? TD.detailsClose : TD.detailsOpenHead + RECORD_APP_MEMO_TEXT.item + TD.detailsOpenTail,
-      'again details-toggle', function () {
-        if (state.sending) return;
-        state.detailsOpen = !state.detailsOpen;
-        renderSelect();
-      });
-    toggle.setAttribute('aria-expanded', state.detailsOpen ? 'true' : 'false');
-    toggle.disabled = state.sending;
-    card.appendChild(toggle);
-    if (!state.detailsOpen) {
-      var summary = detailsSummary();
-      if (summary !== '') card.appendChild(el('p', 'note', summary));
-      return;
-    }
     renderMemo(card);
   }
 
