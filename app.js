@@ -167,7 +167,7 @@ var RECORD_APP_MEMO_TEXT = {
   heading: 'メモ（必須）',
   note: '場所ごとに書いてください。全部終わった場所は「全部完了」を押すだけで入ります（30文字まで）',
   noPlace: '場所を選ぶと、場所ごとにメモを書けます',
-  placeholder: '例：A1-10ベンチ下完了',
+  placeholder: '例:A1-10ベンチ下完了',
   done: '全部完了',
   labelTail: 'のメモ',
   item: 'メモ',
