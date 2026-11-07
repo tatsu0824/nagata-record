@@ -814,7 +814,7 @@ function recordAppStart_() {
       input.style.flex = '1 1 auto';
       input.style.minWidth = '0';
       input.style.height = '48px';
-      input.style.fontSize = '18px';
+      input.style.fontSize = '16px';
       var done = button(TM.done, 'choice memo-done', function () {
         if (state.sending) return;
         state.memos[loc] = memoText(loc) === TM.done ? '' : TM.done;
